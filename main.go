@@ -32,13 +32,14 @@ func main() {
 		fmt.Fprintf(flag.CommandLine.Output(), "\nProvide one or more PIDs as arguments after the config flags\n")
 	}
 
-	pidFileName := flag.String("pidfile", "/var/run/kill-on-file.pid", "PID file path")
-	logFileName := flag.String("logfile", "/var/log/kill-on-file.log", "Log file path")
-	killFileName := flag.String("killfile", "/var/log/kill-on-file.log", "Log file path")
+	pidFileName := flag.String("pidfile", "./kill-on-file.pid", "PID file path")
+	logFileName := flag.String("logfile", "./kill-on-file.log", "Log file path")
+	killFileName := flag.String("killfile", "./kill-on-file.trigger", "File path to trigger signal")
 	actionOnNotExist := flag.Bool("notexist", false, "Send signal if file is not present instead of when file is present")
 	pollSeconds := flag.Int("pollseconds", 5, "File polling frequency in seconds")
 	signalName := flag.String("signal", "TERM", "Name of the signal to send e.g TERM | USR1 | QUIT | KILL | ...")
 	killGrace := flag.Int("killgrace", 0, "Send a KILL signal this number of seconds after initial signal. Zero disables this")
+	triggerDelay := flag.Int("delay", 0, "Wait at least this number of seconds after file is detected before sending signal")
 
 	envy.Parse("KILL_ON_FILE")
 	flag.Parse()
@@ -86,6 +87,7 @@ func main() {
 	for {
 		if existsBool := fileExists(*killFileName); existsBool != *actionOnNotExist {
 			log.Printf("File: %s, Exists: %v", *killFileName, existsBool)
+			time.Sleep(time.Duration(*triggerDelay) * time.Second)
 			for _, killPid := range killPids {
 				if foundProcess, err := os.FindProcess(killPid); err == nil {
 					sigErr := foundProcess.Signal(signalNum)
