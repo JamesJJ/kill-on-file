@@ -3,11 +3,11 @@ package main
 import (
 	"flag"
 	"fmt"
+	"golang.org/x/sys/unix"
 	"log"
 	"os"
 	"strconv"
 	"strings"
-	"golang.org/x/sys/unix"
 	"time"
 
 	"github.com/jamiealquiza/envy"
@@ -39,14 +39,17 @@ func main() {
 	pollSeconds := flag.Int("pollseconds", 5, "File polling frequency in seconds")
 	signalName := flag.String("signal", "TERM", "Name of the signal to send e.g TERM | USR1 | QUIT | KILL | ...")
 	killGrace := flag.Int("killgrace", 0, "Send a KILL signal this number of seconds after initial signal. Zero disables this")
-	killPidsString := flag.Args()
+
 	envy.Parse("KILL_ON_FILE")
 	flag.Parse()
+
+	killPidsString := flag.Args()
 
 	var killPids = []int{}
 	for _, killPidArg := range killPidsString {
 		killPidInt, err := strconv.Atoi(killPidArg)
 		if err != nil {
+			log.Printf("Ignoring: %v", killPidArg)
 			continue
 		}
 		killPids = append(killPids, killPidInt)
@@ -57,16 +60,18 @@ func main() {
 		os.Exit(2)
 	}
 
-	signalNum := unix.SignalNum(fmt.Sprintf("SIG%s", strings.ToUpper(signalName)))
+	signalNum := unix.SignalNum(fmt.Sprintf("SIG%s", strings.ToUpper(*signalName)))
+
+	log.Printf("== Will send %s if exists=%v for file %s to %v (polling every %ds)", strings.ToUpper(*signalName), !*actionOnNotExist, *killFileName, killPids, *pollSeconds)
 
 	cntxt := &daemon.Context{
-		PidFileName: pidFileName,
+		PidFileName: *pidFileName,
 		PidFilePerm: 0644,
-		LogFileName: logFileName,
+		LogFileName: *logFileName,
 		LogFilePerm: 0640,
 		WorkDir:     "./",
 		Umask:       027,
-		Args:        []string{fmt.Sprintf("[kill-on-file: %s]", killFile)},
+		Args:        append([]string{"KOF"}, os.Args[1:]...),
 	}
 
 	d, err := cntxt.Reborn()
@@ -78,25 +83,25 @@ func main() {
 	}
 	defer cntxt.Release()
 
-	log.Printf("== Will send %s if exists=%v for file %s (polling every %ds)", strings.ToUpper(signalName), !actionOnNotExist, killFileName, pollSeconds)
-
 	for {
-
-		if existsBool := fileExists(killFileName); existsBool != actionOnNotExist {
-			for killPid := range killPids {
+		if existsBool := fileExists(*killFileName); existsBool != *actionOnNotExist {
+			log.Printf("File: %s, Exists: %v", *killFileName, existsBool)
+			for _, killPid := range killPids {
 				if foundProcess, err := os.FindProcess(killPid); err == nil {
 					sigErr := foundProcess.Signal(signalNum)
-					log.Printf("Sent %s to %d (err: %v)", strings.ToUpper(signalName), killPid, sigErr)
+					log.Printf("Sent %s to %d (err: %v)", signalNum, killPid, sigErr)
 				}
+
 			}
 			break
 		}
-		time.Sleep(time.Duration(pollSeconds) * time.Second)
+		time.Sleep(time.Duration(*pollSeconds) * time.Second)
 
 	}
-	if killGrace > 0 {
-		time.Sleep(time.Duration(killGrace) * time.Second)
-		for killPid := range killPids {
+
+	if *killGrace > 0 {
+		time.Sleep(time.Duration(*killGrace) * time.Second)
+		for _, killPid := range killPids {
 			if foundProcess, err := os.FindProcess(killPid); err == nil {
 				sigErr := foundProcess.Signal(unix.SignalNum("SIGKILL"))
 				log.Printf("Sent %s to %d (err: %v)", "KILL", killPid, sigErr)
