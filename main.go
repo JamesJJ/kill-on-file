@@ -26,6 +26,7 @@ func fileExists(filename string) bool {
 
 func main() {
 
+	// GET CONFIGURATION
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage of %s:\n", os.Args[0])
 		flag.PrintDefaults()
@@ -63,8 +64,10 @@ func main() {
 
 	signalNum := unix.SignalNum(fmt.Sprintf("SIG%s", strings.ToUpper(*signalName)))
 
+	// LOG A LINE TO SHOW WE ARE RUNNING
 	log.Printf("== Will send %s if exists=%v for file %s to %v (polling every %ds)", strings.ToUpper(*signalName), !*actionOnNotExist, *killFileName, killPids, *pollSeconds)
 
+	// DAEMONIZE
 	cntxt := &daemon.Context{
 		PidFileName: *pidFileName,
 		PidFilePerm: 0644,
@@ -84,29 +87,35 @@ func main() {
 	}
 	defer cntxt.Release()
 
+	// POLLING FILE LOOP
 	for {
 		if existsBool := fileExists(*killFileName); existsBool != *actionOnNotExist {
 			log.Printf("File: %s, Exists: %v", *killFileName, existsBool)
-			time.Sleep(time.Duration(*triggerDelay) * time.Second)
-			for _, killPid := range killPids {
-				if foundProcess, err := os.FindProcess(killPid); err == nil {
-					sigErr := foundProcess.Signal(signalNum)
-					log.Printf("Sent %s to %d (err: %v)", signalNum, killPid, sigErr)
-				}
-
-			}
 			break
 		}
 		time.Sleep(time.Duration(*pollSeconds) * time.Second)
+	}
+
+	// PAUSE FOR TRIGGER DELAY
+	time.Sleep(time.Duration(*triggerDelay) * time.Second)
+
+	// SEND INITIAL SIGNALS
+	for _, killPid := range killPids {
+		if foundProcess, err := os.FindProcess(killPid); err == nil {
+			sigErr := foundProcess.Signal(signalNum)
+			log.Printf("Sent %d to %d (err: %v)", signalNum, killPid, sigErr)
+		}
 
 	}
 
+	// SEND KILL SIGNALS
 	if *killGrace > 0 {
 		time.Sleep(time.Duration(*killGrace) * time.Second)
 		for _, killPid := range killPids {
 			if foundProcess, err := os.FindProcess(killPid); err == nil {
-				sigErr := foundProcess.Signal(unix.SignalNum("SIGKILL"))
-				log.Printf("Sent %s to %d (err: %v)", "KILL", killPid, sigErr)
+				sigKillNum := unix.SignalNum("SIGKILL")
+				sigErr := foundProcess.Signal(sigKillNum)
+				log.Printf("Sent %d to %d (err: %v)", sigKillNum, killPid, sigErr)
 			}
 		}
 
